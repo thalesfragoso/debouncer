@@ -1,0 +1,9 @@
+[package]
+name = "debouncer"
+version = "0.1.0"
+authors = ["thalesfragoso <thales.fragosoz@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+generic-array = "0.13.0"
+typenum = "1.10.0"
