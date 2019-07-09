@@ -1,3 +1,71 @@
+//! Debouncer is a library to provide a way of deboucing hardware buttons. It can debounce a whole
+//! port in parallel with `PortDebouncer` or individual pins with `PinDebouncer`.
+//! 
+//! # Parallel Debouncing
+//! 
+//! `PortDebouncer` keeps the `N` lasts states provided by its `update` method, and updates its
+//! internal port state in the Nth time the `update` method gets called. The number of states `N`
+//! together with the frequency at which the `update` method is called determine the total debouncing
+//! period, e.g. with `N = 8` and calling `update` every 5ms we get a debouncing period of 40ms.
+//! A greater `N` provides better granularity but uses more memory.
+//! 
+//! To reduce resource usage, the library request the number of buttons that will be debounced, this
+//! is provide during the struct initialization:
+//! ```rust,ignore
+//! let mut port_debouncer: PortDebouncer<N, BTNS> = PortDebouncer::new(20,100);
+//! ```
+//! where, `N` is the number of states for debouncing and `BTNS` is the number of buttons to be debounced
+//! in sequential order, passing a higher value to `get_state` causes it to return an error.
+//! **NOTE:** Buttons count starts at zero.
+//! 
+//! ## Example
+//! ```rust
+//! use debouncer::{PortDebouncer, BtnState};
+//! use typenum::consts::*;
+//! 
+//! let presses: [u32; 8] = [0, 1, 0, 1, 1, 1, 1, 1];
+//! let mut port_debouncer: PortDebouncer<U4, U1> = PortDebouncer::new(20, 100);
+//!
+//! for count in 0..presses.len() / 2 {
+//!     port_debouncer.update(presses[count]);
+//! }
+//! assert_eq!(BtnState::UnPressed, port_debouncer.get_state(0).unwrap());
+//!
+//! for count in presses.len() / 2..presses.len() {
+//!     port_debouncer.update(presses[count]);
+//! }
+//! assert_eq!(
+//!     BtnState::ChangedToPressed,
+//!     port_debouncer.get_state(0).unwrap()
+//! );
+//!
+//! let hold_presses = [1u32; 88];
+//!
+//! for press in hold_presses.iter() {
+//!     port_debouncer.update(*press);
+//! }
+//! assert_eq!(BtnState::Pressed, port_debouncer.get_state(0).unwrap());
+//!
+//! for count in 0..8 {
+//!     port_debouncer.update(hold_presses[count]);
+//! }
+//! assert_eq!(BtnState::Hold, port_debouncer.get_state(0).unwrap());
+//!
+//! let repeat_presses = [1u32; 20];
+//!
+//! for press in repeat_presses.iter() {
+//!     port_debouncer.update(*press);
+//! }
+//! assert_eq!(BtnState::Repeat, port_debouncer.get_state(0).unwrap());
+//!
+//! assert_eq!(BtnState::Hold, port_debouncer.get_state(0).unwrap());
+//!
+//! for _ in 0..4 {
+//!     port_debouncer.update(0);
+//! }
+//! assert_eq!(BtnState::UnPressed, port_debouncer.get_state(0).unwrap());
+//! ```
+
 #![no_std]
 
 use generic_array::{ArrayLength, GenericArray};
@@ -51,7 +119,7 @@ where
     /// * `repeat_ticks` - The number of ticks after que hold state at which the button is considered
     /// to be in the repeat state, i.e. in the current implementation the button must be first past
     /// the hold state before reaching the repeat state. This number must be a multiple of the
-    /// `press_ticks` for better accuracy
+    /// `press_ticks` (`N`) for better accuracy
     /// 
     /// * `hold_ticks` - The number of ticks before the pin is considered to be in the hold state
     /// This number must be a multiple of the `press_ticks` for better accuracy
@@ -72,7 +140,7 @@ where
     /// This method should be called frequently according to the precision required by the
     /// application. The last N states will be used to debounce the pin, where N is the number
     /// chosen for the `press_ticks`. For example, if the user wants a 40ms deboucing time, one can
-    /// set the `press_ticks` to 4 and call this method every 5ms. A higher `press_ticks` results in
+    /// set the `press_ticks` to 8 and call this method every 5ms. A higher `press_ticks` results in
     /// better precision but also in a higher memory usage in order to store the previous states
     /// 
     /// # Arguments
@@ -115,11 +183,11 @@ where
     /// * `pin` - Pin which state must be queried. Where the zeroth pin is considered to be the least
     /// significant bit in the `port_value` used in the `update` method
     pub fn get_state(&mut self, pin: usize) -> Result<BtnState, Error> {
+        if pin >= BTNS::to_usize() {
+            return Err(Error::BtnUninitialized);
+        }
         if self.changed_to_pressed & (1 << pin) != 0 {
             return Ok(BtnState::ChangedToPressed);
-        }
-        if pin >= BTNS::to_usize() {
-            Err(Error::BtnUninitialized)
         } else {
             if self.counter[pin] >= (self.hold_ticks + self.repeat_ticks) as u32 {
                 self.counter[pin] -= self.repeat_ticks as u32;
@@ -303,7 +371,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn port_out_of_bound_btn() {
-        let presses: [u32; 8] = [0, 1, 0, 1, 1, 1, 1, 1];
+        let presses: [u32; 8] = [1, 1, 1, 1, 2, 2, 2, 2];
         let mut port_debouncer: PortDebouncer<U4, U1> = PortDebouncer::new(20, 100);
 
         for press in presses.iter() {
