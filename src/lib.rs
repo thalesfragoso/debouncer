@@ -87,13 +87,12 @@ pub enum BtnState {
     ChangedToPressed = 4,
 }
 
-pub struct PortDebouncer<N: ArrayLength<u32>, BTNS: ArrayLength<u32>> {
+pub struct PortDebouncer<N: ArrayLength<u32> + Unsigned, BTNS: ArrayLength<u32> + Unsigned> {
     port_states: GenericArray<u32, N>,
     current_index: usize,
     last_debounbed_state: u32,
     debounced_state: u32,
     changed_to_pressed: u32,
-    press_ticks: usize,
     repeat_ticks: usize,
     hold_ticks: usize,
     counter: GenericArray<u32, BTNS>,
@@ -130,9 +129,8 @@ where
             last_debounbed_state: 0,
             debounced_state: 0,
             changed_to_pressed: 0,
-            press_ticks: N::to_usize(),
-            repeat_ticks: repeat_ticks / N::to_usize(),
-            hold_ticks: hold_ticks / N::to_usize() - 1,
+            repeat_ticks: repeat_ticks / N::USIZE,
+            hold_ticks: hold_ticks / N::USIZE - 1,
             counter: GenericArray::default(),
         }
     }
@@ -145,30 +143,29 @@ where
     ///
     /// # Arguments
     ///
-    /// * `port_value` - The port state in a given time, where is bit represents a pin state. The pins
-    /// are considered to be active-high, if one wants to use a active-low port, he can use the
-    /// bitwise negator operator `!`.
+    /// * `port_value` - The port state in a given time, where its bits represent a pin state. The
+    /// pins are considered to be active-high. For an active-low port, the user can use the bitwise
+    /// negator operator `!` before passing the value to the method.
     pub fn update(&mut self, port_value: u32) -> bool {
         self.port_states[self.current_index] = port_value;
-        if self.current_index != self.press_ticks - 1 {
+        if self.current_index != N::USIZE - 1 {
             self.current_index += 1;
             false
         } else {
             self.current_index = 0;
-            self.debounced_state = 0xFFFF_FFFF as u32;
-            let states_slice = &self.port_states[..self.press_ticks];
-            for state in 0..self.press_ticks {
-                self.debounced_state &= states_slice[state];
+            self.debounced_state = 0xFFFF_FFFF;
+            for &state in self.port_states.iter() {
+                self.debounced_state &= state;
             }
             self.changed_to_pressed = !self.last_debounbed_state & self.debounced_state;
 
-            for btn in 0..BTNS::to_usize() {
-                if (self.last_debounbed_state & self.debounced_state & (1 << btn)) != 0 {
-                    if self.counter[btn] < (self.hold_ticks + self.repeat_ticks) as u32 {
-                        self.counter[btn] += 1;
+            for (index, btn_counter) in self.counter.iter_mut().enumerate() {
+                if (self.last_debounbed_state & self.debounced_state & (1 << index)) != 0 {
+                    if *btn_counter < (self.hold_ticks + self.repeat_ticks) as u32 {
+                        *btn_counter += 1;
                     }
                 } else {
-                    self.counter[btn] = 0;
+                    *btn_counter = 0;
                 }
             }
             self.last_debounbed_state = self.debounced_state;
@@ -185,22 +182,21 @@ where
     /// * `pin` - Pin which state must be queried. Where the zeroth pin is considered to be the least
     /// significant bit in the `port_value` used in the `update` method
     pub fn get_state(&mut self, pin: usize) -> Result<BtnState, Error> {
-        if pin >= BTNS::to_usize() {
+        if pin >= BTNS::USIZE {
             return Err(Error::BtnUninitialized);
         }
         if self.changed_to_pressed & (1 << pin) != 0 {
             return Ok(BtnState::ChangedToPressed);
+        }
+        if self.counter[pin] >= (self.hold_ticks + self.repeat_ticks) as u32 {
+            self.counter[pin] -= self.repeat_ticks as u32;
+            Ok(BtnState::Repeat)
+        } else if self.counter[pin] >= self.hold_ticks as u32 {
+            Ok(BtnState::Hold)
+        } else if self.debounced_state & (1 << pin) != 0 {
+            Ok(BtnState::Pressed)
         } else {
-            if self.counter[pin] >= (self.hold_ticks + self.repeat_ticks) as u32 {
-                self.counter[pin] -= self.repeat_ticks as u32;
-                Ok(BtnState::Repeat)
-            } else if self.counter[pin] >= self.hold_ticks as u32 {
-                Ok(BtnState::Hold)
-            } else if self.debounced_state & (1 << pin) != 0 {
-                Ok(BtnState::Pressed)
-            } else {
-                Ok(BtnState::UnPressed)
-            }
+            Ok(BtnState::UnPressed)
         }
     }
 }
@@ -284,13 +280,13 @@ mod tests {
         let presses: [u32; 8] = [0, 1, 0, 1, 1, 1, 1, 1];
         let mut port_debouncer: PortDebouncer<U4, U1> = PortDebouncer::new(20, 100);
 
-        for count in 0..presses.len() / 2 {
-            port_debouncer.update(presses[count]);
+        for &value in presses.iter().take(presses.len() / 2) {
+            port_debouncer.update(value);
         }
         assert_eq!(BtnState::UnPressed, port_debouncer.get_state(0).unwrap());
 
-        for count in presses.len() / 2..presses.len() {
-            port_debouncer.update(presses[count]);
+        for &value in presses.iter().skip(presses.len() / 2) {
+            port_debouncer.update(value);
         }
         assert_eq!(
             BtnState::ChangedToPressed,
@@ -299,20 +295,20 @@ mod tests {
 
         let hold_presses = [1u32; 88];
 
-        for press in hold_presses.iter() {
-            port_debouncer.update(*press);
+        for &value in hold_presses.iter() {
+            port_debouncer.update(value);
         }
         assert_eq!(BtnState::Pressed, port_debouncer.get_state(0).unwrap());
 
-        for count in 0..8 {
-            port_debouncer.update(hold_presses[count]);
+        for &value in hold_presses.iter().take(8) {
+            port_debouncer.update(value);
         }
         assert_eq!(BtnState::Hold, port_debouncer.get_state(0).unwrap());
 
         let repeat_presses = [1u32; 20];
 
-        for press in repeat_presses.iter() {
-            port_debouncer.update(*press);
+        for &value in repeat_presses.iter() {
+            port_debouncer.update(value);
         }
         assert_eq!(BtnState::Repeat, port_debouncer.get_state(0).unwrap());
 
@@ -329,13 +325,13 @@ mod tests {
         let presses: [u32; 8] = [0, 1, 0, 1, 2, 2, 2, 2];
         let mut port_debouncer: PortDebouncer<U4, U2> = PortDebouncer::new(20, 100);
 
-        for count in 0..presses.len() / 2 {
-            port_debouncer.update(presses[count]);
+        for &value in presses.iter().take(presses.len() / 2) {
+            port_debouncer.update(value);
         }
         assert_eq!(BtnState::UnPressed, port_debouncer.get_state(1).unwrap());
 
-        for count in presses.len() / 2..presses.len() {
-            port_debouncer.update(presses[count]);
+        for &value in presses.iter().skip(presses.len() / 2) {
+            port_debouncer.update(value);
         }
         assert_eq!(
             BtnState::ChangedToPressed,
@@ -349,8 +345,8 @@ mod tests {
         }
         assert_eq!(BtnState::Pressed, port_debouncer.get_state(1).unwrap());
 
-        for count in 0..8 {
-            port_debouncer.update(hold_presses[count]);
+        for &value in hold_presses.iter().take(8) {
+            port_debouncer.update(value);
         }
         assert_eq!(BtnState::Hold, port_debouncer.get_state(1).unwrap());
 
@@ -375,8 +371,8 @@ mod tests {
         let presses: [u32; 8] = [1, 1, 1, 1, 2, 2, 2, 2];
         let mut port_debouncer: PortDebouncer<U4, U1> = PortDebouncer::new(20, 100);
 
-        for press in presses.iter() {
-            port_debouncer.update(*press);
+        for &value in presses.iter() {
+            port_debouncer.update(value);
         }
         let _ = port_debouncer.get_state(1).unwrap();
     }
@@ -386,13 +382,13 @@ mod tests {
         let mut pin_debouncer = PinDebouncer::new(4, 20, 100);
         let presses: [bool; 8] = [false, true, false, true, true, true, true, true];
 
-        for count in 0..presses.len() / 2 {
-            pin_debouncer.update(presses[count]);
+        for &value in presses.iter().take(presses.len() / 2) {
+            pin_debouncer.update(value);
         }
         assert_eq!(BtnState::UnPressed, pin_debouncer.get_state());
 
-        for count in presses.len() / 2..presses.len() {
-            pin_debouncer.update(presses[count]);
+        for &value in presses.iter().skip(presses.len() / 2) {
+            pin_debouncer.update(value);
         }
         assert_eq!(BtnState::ChangedToPressed, pin_debouncer.get_state());
 
