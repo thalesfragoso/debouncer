@@ -1,4 +1,4 @@
-//! Debouncer is a library to provide a way of deboucing hardware buttons. It can debounce a whole
+//! Debouncer is a library to provide a way of debouncing hardware buttons. It can debounce a whole
 //! port in parallel with `PortDebouncer` or individual pins with `PinDebouncer`.
 //!
 //! # Parallel Debouncing
@@ -76,7 +76,7 @@ pub use generic_array::typenum;
 #[derive(Debug)]
 pub enum Error {
     /// Error caused by querying the state of a pin which was not initialized during the creation of
-    /// the PortDebouncer struct
+    /// the `PortDebouncer` struct
     BtnUninitialized,
 }
 
@@ -92,7 +92,7 @@ pub enum BtnState {
 pub struct PortDebouncer<N: ArrayLength<u32> + Unsigned, BTNS: ArrayLength<u32> + Unsigned> {
     port_states: GenericArray<u32, N>,
     current_index: usize,
-    last_debounbed_state: u32,
+    last_debounced_state: u32,
     debounced_state: u32,
     changed_to_pressed: u32,
     repeat_ticks: usize,
@@ -105,13 +105,13 @@ where
     N: ArrayLength<u32> + Unsigned,
     BTNS: ArrayLength<u32> + Unsigned,
 {
-    /// Returns a PortDeboncer struct
+    /// Returns a PortDebouncer struct
     ///
     /// # Generic arguments
     ///
-    /// * `N` - Number of ticks before the pin is considered to be pressed, Unsiged type of the
+    /// * `N` - Number of ticks before the pin is considered to be pressed, Unsigned type of the
     /// typenum crate
-    /// * `BTNS` - Number of buttons which should be initialised for debouncing. The buttons are
+    /// * `BTNS` - Number of buttons which should be initialized for debouncing. The buttons are
     /// considered to be the bits in sequence order (from least to most significance) in the input
     /// from the `update` method
     ///
@@ -128,7 +128,7 @@ where
         PortDebouncer {
             port_states: GenericArray::default(),
             current_index: 0,
-            last_debounbed_state: 0,
+            last_debounced_state: 0,
             debounced_state: 0,
             changed_to_pressed: 0,
             repeat_ticks: repeat_ticks / N::USIZE,
@@ -159,10 +159,10 @@ where
             for &state in self.port_states.iter() {
                 self.debounced_state &= state;
             }
-            self.changed_to_pressed = !self.last_debounbed_state & self.debounced_state;
+            self.changed_to_pressed = !self.last_debounced_state & self.debounced_state;
 
             for (index, btn_counter) in self.counter.iter_mut().enumerate() {
-                if (self.last_debounbed_state & self.debounced_state & (1 << index)) != 0 {
+                if (self.last_debounced_state & self.debounced_state & (1 << index)) != 0 {
                     if *btn_counter < (self.hold_ticks + self.repeat_ticks) as u32 {
                         *btn_counter += 1;
                     }
@@ -170,7 +170,7 @@ where
                     *btn_counter = 0;
                 }
             }
-            self.last_debounbed_state = self.debounced_state;
+            self.last_debounced_state = self.debounced_state;
             true
         }
     }
@@ -205,7 +205,7 @@ where
 
 pub struct PinDebouncer {
     current_index: u32,
-    last_debounbed_state: BtnState,
+    last_debounced_state: BtnState,
     debounced_state: BtnState,
     press_ticks: u32,
     repeat_ticks: u32,
@@ -217,7 +217,7 @@ impl PinDebouncer {
     pub const fn new(press_ticks: u32, repeat_ticks: u32, hold_ticks: u32) -> PinDebouncer {
         PinDebouncer {
             current_index: 0,
-            last_debounbed_state: BtnState::UnPressed,
+            last_debounced_state: BtnState::UnPressed,
             debounced_state: BtnState::UnPressed,
             press_ticks: press_ticks - 1,
             repeat_ticks,
@@ -246,7 +246,7 @@ impl PinDebouncer {
         } else {
             self.debounced_state = BtnState::UnPressed;
         }
-        if (self.last_debounbed_state == BtnState::UnPressed)
+        if (self.last_debounced_state == BtnState::UnPressed)
             && (self.debounced_state == BtnState::Pressed)
         {
             self.debounced_state = BtnState::ChangedToPressed;
@@ -255,7 +255,7 @@ impl PinDebouncer {
         } else if self.counter >= self.hold_ticks {
             self.debounced_state = BtnState::Hold;
         }
-        self.last_debounbed_state = self.debounced_state;
+        self.last_debounced_state = self.debounced_state;
         true
     }
 
