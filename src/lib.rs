@@ -21,7 +21,7 @@
 //! ## Example
 //! ```rust
 //! use debouncer::{PortDebouncer, BtnState};
-//! use typenum::consts::*;
+//! use debouncer::typenum::consts::*;
 //!
 //! let presses: [u32; 8] = [0, 1, 0, 1, 1, 1, 1, 1];
 //! let mut port_debouncer: PortDebouncer<U4, U1> = PortDebouncer::new(20, 100);
@@ -68,8 +68,10 @@
 
 #![no_std]
 
+use generic_array::typenum::Unsigned;
 use generic_array::{ArrayLength, GenericArray};
-use typenum::Unsigned;
+
+pub use generic_array::typenum;
 
 #[derive(Debug)]
 pub enum Error {
@@ -273,7 +275,7 @@ impl PinDebouncer {
 mod tests {
 
     use super::*;
-    use typenum::consts::*;
+    use generic_array::typenum::consts::*;
 
     #[test]
     fn port_btn0_pressed() {
